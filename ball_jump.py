@@ -16,10 +16,10 @@ RIM_WIDTH = 90
 BACKBOARD_HEIGHT = 90
 NET_DEPTH = 45
 
-PLAYER_NUMBER = 8
 PLAYER_SPEED = 6
-PLAYER_MIN_X = WIDTH // 2 + 20  # he patrols the right half of the court
-PLAYER_MAX_X = WIDTH - POLE_WIDTH - RIM_WIDTH - 10
+PLAYER_MARGIN = 20  # how far each player stays from the half-court line
+PLAYER_RIM_GAP = 10  # how close each player gets to his own rim
+SIT_FRAMES = 75  # how long number 1 stays on his butt after a miss
 TIP_LEAD = 12  # frames between the ball's peak and it dropping to rim height
 TIP_FRAMES = 30  # how long a tipped ball hangs before dropping through the rim
 
@@ -33,11 +33,19 @@ NET_COLOR = (255, 255, 255)
 TEXT_COLOR = (30, 30, 30)
 SCOREBOARD_COLOR = (40, 40, 60)
 SCOREBOARD_TEXT = (255, 220, 80)
-SKIN_COLOR = (92, 58, 36)
-JERSEY_COLOR = (0, 82, 180)
-SHORTS_COLOR = (0, 58, 135)
-JERSEY_TEXT = (255, 130, 20)
 SHOE_COLOR = (245, 245, 245)
+
+# Number 8 (right side): blue with orange number
+P8_SKIN = (92, 58, 36)
+P8_JERSEY = (0, 82, 180)
+P8_SHORTS = (0, 58, 135)
+P8_TEXT = (255, 130, 20)
+
+# Number 1 (left side): black with white number
+P1_SKIN = (198, 146, 104)
+P1_JERSEY = (20, 20, 20)
+P1_SHORTS = (38, 38, 38)
+P1_TEXT = (255, 255, 255)
 
 
 class Ball:
@@ -152,27 +160,45 @@ class Hoop:
 
 
 class Player:
-    """Number 8, who hangs around the right hoop and tips in missed shots."""
+    """A player who patrols one half of the court and goes up for shots at his hoop."""
 
     LEG = 40
     TORSO = 42
     HEAD_RADIUS = 11
 
-    def __init__(self):
-        self.x = PLAYER_MAX_X
+    def __init__(self, number, side, skin, jersey, shorts, text):
+        self.number = number
+        self.side = side  # "left" or "right"
+        self.skin = skin
+        self.jersey = jersey
+        self.shorts = shorts
+        self.text = text
+        if side == "left":
+            self.min_x = POLE_WIDTH + RIM_WIDTH + PLAYER_RIM_GAP
+            self.max_x = WIDTH // 2 - PLAYER_MARGIN
+            self.x = self.min_x
+            self.facing = 1  # toward center court
+        else:
+            self.min_x = WIDTH // 2 + PLAYER_MARGIN
+            self.max_x = WIDTH - POLE_WIDTH - RIM_WIDTH - PLAYER_RIM_GAP
+            self.x = self.max_x
+            self.facing = -1
         self.y = GROUND_Y  # feet
         self.vy = 0
         self.on_ground = True
+        self.fallen = False  # True from the moment he loses his balance until he gets back up
+        self.sit_timer = 0
 
     def update(self, ball):
         # Shadow the ball so he is underneath it when a shot comes off
-        target = max(PLAYER_MIN_X, min(PLAYER_MAX_X, ball.x))
-        if abs(target - self.x) <= PLAYER_SPEED:
-            self.x = target
-        elif target > self.x:
-            self.x += PLAYER_SPEED
-        else:
-            self.x -= PLAYER_SPEED
+        if not self.fallen:
+            target = max(self.min_x, min(self.max_x, ball.x))
+            if abs(target - self.x) <= PLAYER_SPEED:
+                self.x = target
+            elif target > self.x:
+                self.x += PLAYER_SPEED
+            else:
+                self.x -= PLAYER_SPEED
 
         self.vy += GRAVITY
         self.y += self.vy
@@ -181,13 +207,30 @@ class Player:
             self.vy = 0
             self.on_ground = True
 
+        # Sit there for a bit, then get back up
+        if self.fallen and self.on_ground:
+            self.sit_timer -= 1
+            if self.sit_timer <= 0:
+                self.fallen = False
+
     def jump(self):
-        if self.on_ground:
+        if self.on_ground and not self.fallen:
             # Timed to peak just as the ball drops to rim height
             self.vy = -GRAVITY * TIP_LEAD
             self.on_ground = False
 
+    def fall(self):
+        if not self.fallen:
+            self.fallen = True
+            self.sit_timer = SIT_FRAMES
+
     def draw(self, screen, font):
+        if self.fallen:
+            self.draw_sitting(screen, font)
+        else:
+            self.draw_standing(screen, font)
+
+    def draw_standing(self, screen, font):
         x, feet = int(self.x), int(self.y)
         hip = feet - self.LEG
         shoulder = hip - self.TORSO
@@ -195,7 +238,7 @@ class Player:
 
         # Legs and shoes
         for dx in (-7, 7):
-            pygame.draw.line(screen, SKIN_COLOR, (x + dx, hip), (x + dx, feet - 4), 7)
+            pygame.draw.line(screen, self.skin, (x + dx, hip), (x + dx, feet - 4), 7)
             pygame.draw.rect(screen, SHOE_COLOR, (x + dx - 6, feet - 6, 14, 6), border_radius=3)
 
         # Arms: down at his sides, or stretched up for the tip while airborne
@@ -204,16 +247,42 @@ class Player:
                 hand = (x + dx * 1.3, shoulder + 34)
             else:
                 hand = (x + dx * 0.6, shoulder - 34)
-            pygame.draw.line(screen, SKIN_COLOR, (x + dx, shoulder + 4), hand, 6)
+            pygame.draw.line(screen, self.skin, (x + dx, shoulder + 4), hand, 6)
 
         # Shorts, jersey and number
-        pygame.draw.rect(screen, SHORTS_COLOR, (x - 13, hip - 4, 26, 18), border_radius=3)
-        pygame.draw.rect(screen, JERSEY_COLOR, (x - 13, shoulder, 26, self.TORSO - 2), border_radius=4)
-        number = font.render(str(PLAYER_NUMBER), True, JERSEY_TEXT)
+        pygame.draw.rect(screen, self.shorts, (x - 13, hip - 4, 26, 18), border_radius=3)
+        pygame.draw.rect(screen, self.jersey, (x - 13, shoulder, 26, self.TORSO - 2), border_radius=4)
+        number = font.render(str(self.number), True, self.text)
         screen.blit(number, number.get_rect(center=(x, shoulder + self.TORSO // 2 - 2)))
 
         # Head
-        pygame.draw.circle(screen, SKIN_COLOR, (x, head_y), self.HEAD_RADIUS)
+        pygame.draw.circle(screen, self.skin, (x, head_y), self.HEAD_RADIUS)
+
+    def draw_sitting(self, screen, font):
+        # On his butt: legs stuck out toward center court, hands planted behind him
+        x, seat = int(self.x), int(self.y)
+        d = self.facing
+        shoulder = seat - 14 - self.TORSO
+        head_y = shoulder - self.HEAD_RADIUS
+
+        # Arms propping him up from behind
+        for reach in (24, 33):
+            pygame.draw.line(screen, self.skin, (x - d * 11, shoulder + 6), (x - d * reach, seat - 3), 6)
+
+        # Shorts, jersey and number
+        pygame.draw.rect(screen, self.shorts, (x - 13, seat - 18, 26, 18), border_radius=3)
+        pygame.draw.rect(screen, self.jersey, (x - 13, shoulder, 26, self.TORSO - 2), border_radius=4)
+        number = font.render(str(self.number), True, self.text)
+        screen.blit(number, number.get_rect(center=(x, shoulder + self.TORSO // 2 - 2)))
+
+        # Legs flat on the floor with the shoes pointing up
+        for length, lift in ((42, 11), (48, 5)):
+            foot = (x + d * length, seat - lift)
+            pygame.draw.line(screen, self.skin, (x + d * 8, seat - lift), foot, 7)
+            pygame.draw.rect(screen, SHOE_COLOR, (foot[0] - 3, foot[1] - 10, 7, 14), border_radius=3)
+
+        # Head
+        pygame.draw.circle(screen, self.skin, (x, head_y), self.HEAD_RADIUS)
 
 
 def draw_scoreboard(screen, font, small_font, left_hoop, right_hoop):
@@ -236,7 +305,9 @@ def main():
     small_font = pygame.font.SysFont(None, 24)
     ball = Ball()
     hoops = [Hoop("left"), Hoop("right")]
-    player = Player()
+    player_one = Player(1, "left", P1_SKIN, P1_JERSEY, P1_SHORTS, P1_TEXT)
+    player_eight = Player(8, "right", P8_SKIN, P8_JERSEY, P8_SHORTS, P8_TEXT)
+    players = [player_one, player_eight]
 
     running = True
     while running:
@@ -251,11 +322,15 @@ def main():
 
         was_rising = ball.vy < 0
         ball.update()
-        player.update(ball)
+        for player in players:
+            player.update(ball)
 
-        # As a shot peaks on his side, number 8 goes up for the rebound
-        if was_rising and ball.vy >= 0 and ball.x + ball.vx * TIP_LEAD > WIDTH // 2:
-            player.jump()
+        # As a shot peaks, the player on that side goes up for the rebound
+        if was_rising and ball.vy >= 0:
+            if ball.x + ball.vx * TIP_LEAD > WIDTH // 2:
+                player_eight.jump()
+            else:
+                player_one.jump()
 
         for hoop in hoops:
             if hoop.check_basket(ball):
@@ -263,14 +338,18 @@ def main():
                     ball.end_tip()
             elif hoop.side == "right" and not ball.tipped and hoop.check_miss(ball):
                 # Missed on the right: number 8 tips it in
-                player.jump()
+                player_eight.jump()
                 ball.tip_toward((hoop.rim_start + hoop.rim_end) / 2)
+            elif hoop.side == "left" and hoop.check_miss(ball):
+                # Missed on the left: number 1 falls on his butt
+                player_one.fall()
 
         screen.fill(BG_COLOR)
         pygame.draw.rect(screen, GROUND_COLOR, (0, GROUND_Y, WIDTH, HEIGHT - GROUND_Y))
         for hoop in hoops:
             hoop.draw(screen)
-        player.draw(screen, small_font)
+        for player in players:
+            player.draw(screen, small_font)
         ball.draw(screen)
         draw_scoreboard(screen, font, small_font, *hoops)
         pygame.display.flip()
