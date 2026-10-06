@@ -1,5 +1,40 @@
 # A4
 Assignment 4
+1. Open Terminal and type "run ball_jump.py"
+2. # A basket counts when the ball's center drops down through the rim
+     def check_basket(self, ball):
+          falling_through = ball.prev_y < RIM_Y <= ball.y
+        if falling_through and self.rim_start < ball.x < self.rim_end:
+            self.score += 1
+            self.flash = FPS // 2
+            return True
+        return False
+
+    # A miss is the ball dropping past rim height on this hoop's half of the court, outside the rim
+    def check_miss(self, ball):
+        falling_past = ball.prev_y < RIM_Y <= ball.y
+        if self.side == "left":
+            on_this_side = ball.x < WIDTH // 2
+        else:
+            on_this_side = ball.x > WIDTH // 2
+        in_rim = self.rim_start < ball.x < self.rim_end
+        return falling_past and on_this_side and not in_rim
+
+    # define player self
+   def draw(self, screen, font):
+        x, feet = int(self.x), int(self.y)
+        hip = feet - self.LEG
+        shoulder = hip - self.TORSO
+        head_y = shoulder - self.HEAD_RADIUS
+
+
+3. video link - https://youtu.be/yBB0Bm97JbI
+
+4. What I changed about the code was the players teams colors from purple and yellow to blue and orange.
+
+
+   
+
 import pygame
 
 # --- Settings ---
